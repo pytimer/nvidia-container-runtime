@@ -73,7 +73,7 @@ func getArgs(argv []string) (*args, error) {
 
 	for i := 0; i < len(argv); i++ {
 		param := argv[i]
-		if param == "create" {
+		if param == "create" || param == "delete" {
 			args.cmd = param
 			continue
 		}
@@ -150,7 +150,7 @@ func addNVIDIAHook(spec *specs.Spec) error {
 		}
 	}
 
-	logger.Printf("prestart hook path: %s\n", path)
+	logger.Printf("prestart and poststop hook path: %s\n", path)
 
 	args := []string{path}
 	if spec.Hooks == nil {
@@ -163,11 +163,24 @@ func addNVIDIAHook(spec *specs.Spec) error {
 			logger.Println("existing nvidia prestart hook in OCI spec file")
 			return nil
 		}
+	} else if len(spec.Hooks.Poststop) != 0 {
+		for _, hook := range spec.Hooks.Poststop {
+			if !strings.Contains(hook.Path, "nvidia-container-runtime-hook") {
+				continue
+			}
+			logger.Println("existing nvidia poststop hook in OCI spec file")
+			return nil
+		}
 	}
 
 	spec.Hooks.Prestart = append(spec.Hooks.Prestart, specs.Hook{
 		Path: path,
 		Args: append(args, "prestart"),
+	})
+
+	spec.Hooks.Poststop = append(spec.Hooks.Poststop, specs.Hook{
+		Path: path,
+		Args: append(args, "poststop"),
 	})
 
 	return nil
@@ -198,8 +211,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("error getting processing command line arguments: %v", err)
 	}
-
-	if args.cmd != "create" {
+	// 如果不是create和delete，直接调用runc
+	if args.cmd != "create" && args.cmd != "delete" {
 		logger.Println("Command is not \"create\", executing runc doing nothing")
 		err = execRunc()
 		if err != nil {
@@ -247,7 +260,7 @@ func run() error {
 		return fmt.Errorf("error writing modifed OCI specification to file: %v", err)
 	}
 
-	logger.Print("Prestart hook added, executing runc")
+	logger.Print("Prestart and Poststop hook added, executing runc")
 	err = execRunc()
 	if err != nil {
 		return fmt.Errorf("error forwarding 'create' command to runc: %v", err)
